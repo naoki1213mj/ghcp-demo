@@ -4,6 +4,14 @@
 
 `index.html` をブラウザで開くと、建設現場向けのタスク管理アプリを利用できます。
 
+### 公開サイト（GitHub Pages）
+
+以下のリンクからブラウザですぐに利用できます:
+
+👉 https://naoki1213mj.github.io/ghcp-demo/
+
+> 初回は、リポジトリの **Settings → Pages** で **Source** を **GitHub Actions** に設定してください。`main` ブランチへの push 時に `.github/workflows/pages.yml` により自動デプロイされます。
+
 ### 主な機能
 - 作業タスクの登録（現場名・作業内容・担当者・期限・状態）
 - 追加したタスクを先頭表示（新しい作業を上に表示）
