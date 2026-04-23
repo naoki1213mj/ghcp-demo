@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>建設業向け業務改善アプリ</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #f3f5f8;
+        color: #1f2937;
+      }
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 1.6rem;
+      }
+      .card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        margin-bottom: 16px;
+      }
+      .grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      }
+      label {
+        font-size: 0.95rem;
+      }
+      input,
+      select,
+      button {
+        width: 100%;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        box-sizing: border-box;
+        font-size: 0.95rem;
+      }
+      button {
+        background: #0f766e;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #0d5f59;
+      }
+      .kpi {
+        font-size: 0.9rem;
+        color: #4b5563;
+      }
+      .kpi strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 1.4rem;
+        color: #111827;
+      }
+      .task-list {
+        display: grid;
+        gap: 10px;
+      }
+      .task-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px;
+        display: grid;
+        gap: 6px;
+      }
+      .meta {
+        color: #6b7280;
+        font-size: 0.86rem;
+      }
+      .row {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+      .empty {
+        color: #6b7280;
+        text-align: center;
+        padding: 12px 0;
+      }
+      .danger {
+        color: #b91c1c;
+      }
+      .error {
+        margin-top: 8px;
+        color: #b91c1c;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <h1>建設業向け 業務改善アプリ</h1>
+
+      <section class="card">
+        <div class="grid">
+          <div>
+            <label for="site">現場名</label>
+            <input id="site" placeholder="例: A棟新築工事" />
+          </div>
+          <div>
+            <label for="task">作業内容</label>
+            <input id="task" placeholder="例: 鉄筋組立" />
+          </div>
+          <div>
+            <label for="owner">担当者</label>
+            <input id="owner" placeholder="例: 田中" />
+          </div>
+          <div>
+            <label for="due">期限</label>
+            <input id="due" type="date" />
+          </div>
+          <div>
+            <label for="status">状態</label>
+            <select id="status">
+              <option value="未着手">未着手</option>
+              <option value="進行中">進行中</option>
+              <option value="完了">完了</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top: 12px">
+          <button id="addTask">タスクを追加</button>
+          <div id="errorMessage" class="error" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="grid">
+          <div class="kpi">総タスク数<strong id="totalCount">0</strong></div>
+          <div class="kpi">期限超過<strong id="lateCount">0</strong></div>
+          <div class="kpi">完了率<strong id="doneRate">0%</strong></div>
+          <div>
+            <label for="filterStatus">表示フィルタ</label>
+            <select id="filterStatus">
+              <option value="all">すべて</option>
+              <option value="未着手">未着手</option>
+              <option value="進行中">進行中</option>
+              <option value="完了">完了</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div id="taskList" class="task-list"></div>
+      </section>
+    </main>
+
+    <script>
+      const STORAGE_KEY = "construction_tasks_v1";
+      const elements = {
+        site: document.getElementById("site"),
+        task: document.getElementById("task"),
+        owner: document.getElementById("owner"),
+        due: document.getElementById("due"),
+        status: document.getElementById("status"),
+        addTask: document.getElementById("addTask"),
+        filterStatus: document.getElementById("filterStatus"),
+        totalCount: document.getElementById("totalCount"),
+        lateCount: document.getElementById("lateCount"),
+        doneRate: document.getElementById("doneRate"),
+        taskList: document.getElementById("taskList"),
+        errorMessage: document.getElementById("errorMessage"),
+      };
+
+      const readTasks = () => {
+        try {
+          const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+          return Array.isArray(data) ? data : [];
+        } catch (error) {
+          console.error("Failed to load tasks:", error);
+          return [];
+        }
+      };
+
+      const writeTasks = (tasks) => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+      };
+
+      const getTodayStart = () => {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        return now;
+      };
+
+      const parseLocalDate = (value) => {
+        const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+        if (!matched) return null;
+        const year = Number(matched[1]);
+        const month = Number(matched[2]);
+        const day = Number(matched[3]);
+        const date = new Date(year, month - 1, day);
+        if (
+          date.getFullYear() !== year ||
+          date.getMonth() !== month - 1 ||
+          date.getDate() !== day
+        ) {
+          return null;
+        }
+        date.setHours(0, 0, 0, 0);
+        return date;
+      };
+
+      const formatDateJa = (value) => {
+        const date = parseLocalDate(value);
+        if (!date) return value || "未設定";
+        const pad2 = (num) => String(num).padStart(2, "0");
+        return `${date.getFullYear()}年${pad2(date.getMonth() + 1)}月${pad2(date.getDate())}日`;
+      };
+
+      const isLate = (task, todayStart) => {
+        if (task.status === "完了" || !task.due) return false;
+        const dueDate = parseLocalDate(task.due);
+        if (!dueDate) return false;
+        return dueDate < todayStart;
+      };
+
+      const render = () => {
+        const tasks = readTasks();
+        const filter = elements.filterStatus.value;
+        const visible = filter === "all" ? tasks : tasks.filter((task) => task.status === filter);
+        const todayStart = getTodayStart();
+        const lateTasks = tasks.filter((task) => isLate(task, todayStart));
+
+        elements.totalCount.textContent = String(tasks.length);
+        elements.lateCount.textContent = String(lateTasks.length);
+        const done = tasks.filter((task) => task.status === "完了").length;
+        const doneRate = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+        elements.doneRate.textContent = `${doneRate}%`;
+        elements.doneRate.setAttribute("aria-label", `完了率 ${doneRate} パーセント`);
+
+        elements.taskList.textContent = "";
+        if (!visible.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "表示するタスクがありません";
+          elements.taskList.appendChild(empty);
+          return;
+        }
+
+        visible.forEach((task) => {
+          const item = document.createElement("article");
+          item.className = "task-item";
+
+          const row = document.createElement("div");
+          row.className = "row";
+
+          const title = document.createElement("strong");
+          title.textContent = `${task.site} / ${task.task}`;
+
+          const status = document.createElement("span");
+          status.className = isLate(task, todayStart) ? "danger" : "";
+          status.textContent = task.status;
+
+          row.appendChild(title);
+          row.appendChild(status);
+
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = `担当: ${task.owner || "未設定"} / 期限: ${formatDateJa(task.due)}`;
+
+          item.appendChild(row);
+          item.appendChild(meta);
+          elements.taskList.appendChild(item);
+        });
+      };
+
+      elements.addTask.addEventListener("click", () => {
+        const site = elements.site.value.trim();
+        const task = elements.task.value.trim();
+        const owner = elements.owner.value.trim();
+        const due = elements.due.value;
+        const status = elements.status.value;
+        if (!site || !task) {
+          elements.errorMessage.textContent = "現場名と作業内容は必須です。";
+          return;
+        }
+        if (due && !parseLocalDate(due)) {
+          elements.errorMessage.textContent = "期限の日付形式が正しくありません。";
+          return;
+        }
+        elements.errorMessage.textContent = "";
+
+        const tasks = readTasks();
+        tasks.unshift({
+          id:
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : String(Date.now()),
+          site,
+          task,
+          owner,
+          due,
+          status,
+        });
+        writeTasks(tasks);
+
+        elements.site.value = "";
+        elements.task.value = "";
+        elements.owner.value = "";
+        elements.due.value = "";
+        elements.status.value = "未着手";
+        render();
+      });
+
+      elements.filterStatus.addEventListener("change", render);
+      render();
+    </script>
+  </body>
+</html>
