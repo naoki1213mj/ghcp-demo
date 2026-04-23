@@ -35,6 +35,9 @@
         gap: 12px;
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       }
+      label {
+        font-size: 0.95rem;
+      }
       input,
       select,
       button {
@@ -93,6 +96,11 @@
       .danger {
         color: #b91c1c;
       }
+      .error {
+        margin-top: 8px;
+        color: #b91c1c;
+        font-size: 0.9rem;
+      }
     </style>
   </head>
   <body>
@@ -101,21 +109,34 @@
 
       <section class="card">
         <div class="grid">
-          <label>現場名<input id="site" placeholder="例: A棟新築工事" /></label>
-          <label>作業内容<input id="task" placeholder="例: 鉄筋組立" /></label>
-          <label>担当者<input id="owner" placeholder="例: 田中" /></label>
-          <label>期限<input id="due" type="date" /></label>
-          <label
-            >状態
+          <div>
+            <label for="site">現場名</label>
+            <input id="site" placeholder="例: A棟新築工事" />
+          </div>
+          <div>
+            <label for="task">作業内容</label>
+            <input id="task" placeholder="例: 鉄筋組立" />
+          </div>
+          <div>
+            <label for="owner">担当者</label>
+            <input id="owner" placeholder="例: 田中" />
+          </div>
+          <div>
+            <label for="due">期限</label>
+            <input id="due" type="date" />
+          </div>
+          <div>
+            <label for="status">状態</label>
             <select id="status">
               <option value="未着手">未着手</option>
               <option value="進行中">進行中</option>
               <option value="完了">完了</option>
             </select>
-          </label>
+          </div>
         </div>
         <div style="margin-top: 12px">
           <button id="addTask">タスクを追加</button>
+          <div id="errorMessage" class="error" aria-live="polite"></div>
         </div>
       </section>
 
@@ -124,15 +145,15 @@
           <div class="kpi">総タスク数<strong id="totalCount">0</strong></div>
           <div class="kpi">期限超過<strong id="lateCount">0</strong></div>
           <div class="kpi">完了率<strong id="doneRate">0%</strong></div>
-          <label
-            >表示フィルタ
+          <div>
+            <label for="filterStatus">表示フィルタ</label>
             <select id="filterStatus">
               <option value="all">すべて</option>
               <option value="未着手">未着手</option>
               <option value="進行中">進行中</option>
               <option value="完了">完了</option>
             </select>
-          </label>
+          </div>
         </div>
       </section>
 
@@ -155,13 +176,15 @@
         lateCount: document.getElementById("lateCount"),
         doneRate: document.getElementById("doneRate"),
         taskList: document.getElementById("taskList"),
+        errorMessage: document.getElementById("errorMessage"),
       };
 
       const readTasks = () => {
         try {
           const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
           return Array.isArray(data) ? data : [];
-        } catch {
+        } catch (error) {
+          console.error("Failed to load tasks:", error);
           return [];
         }
       };
@@ -170,18 +193,57 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
       };
 
-      const isLate = (task) =>
-        task.status !== "完了" && task.due && new Date(task.due) < new Date(new Date().toDateString());
+      const getTodayStart = () => {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        return now;
+      };
+
+      const parseLocalDate = (value) => {
+        const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+        if (!matched) return null;
+        const year = Number(matched[1]);
+        const month = Number(matched[2]);
+        const day = Number(matched[3]);
+        const date = new Date(year, month - 1, day);
+        if (
+          date.getFullYear() !== year ||
+          date.getMonth() !== month - 1 ||
+          date.getDate() !== day
+        ) {
+          return null;
+        }
+        date.setHours(0, 0, 0, 0);
+        return date;
+      };
+
+      const formatDateJa = (value) => {
+        const date = parseLocalDate(value);
+        if (!date) return value || "未設定";
+        const pad2 = (num) => String(num).padStart(2, "0");
+        return `${date.getFullYear()}年${pad2(date.getMonth() + 1)}月${pad2(date.getDate())}日`;
+      };
+
+      const isLate = (task, todayStart) => {
+        if (task.status === "完了" || !task.due) return false;
+        const dueDate = parseLocalDate(task.due);
+        if (!dueDate) return false;
+        return dueDate < todayStart;
+      };
 
       const render = () => {
         const tasks = readTasks();
         const filter = elements.filterStatus.value;
         const visible = filter === "all" ? tasks : tasks.filter((task) => task.status === filter);
+        const todayStart = getTodayStart();
+        const lateTasks = tasks.filter((task) => isLate(task, todayStart));
 
         elements.totalCount.textContent = String(tasks.length);
-        elements.lateCount.textContent = String(tasks.filter(isLate).length);
+        elements.lateCount.textContent = String(lateTasks.length);
         const done = tasks.filter((task) => task.status === "完了").length;
-        elements.doneRate.textContent = tasks.length ? `${Math.round((done / tasks.length) * 100)}%` : "0%";
+        const doneRate = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+        elements.doneRate.textContent = `${doneRate}%`;
+        elements.doneRate.setAttribute("aria-label", `完了率 ${doneRate} パーセント`);
 
         elements.taskList.textContent = "";
         if (!visible.length) {
@@ -203,7 +265,7 @@
           title.textContent = `${task.site} / ${task.task}`;
 
           const status = document.createElement("span");
-          status.className = isLate(task) ? "danger" : "";
+          status.className = isLate(task, todayStart) ? "danger" : "";
           status.textContent = task.status;
 
           row.appendChild(title);
@@ -211,7 +273,7 @@
 
           const meta = document.createElement("div");
           meta.className = "meta";
-          meta.textContent = `担当: ${task.owner || "未設定"} / 期限: ${task.due || "未設定"}`;
+          meta.textContent = `担当: ${task.owner || "未設定"} / 期限: ${formatDateJa(task.due)}`;
 
           item.appendChild(row);
           item.appendChild(meta);
@@ -222,18 +284,30 @@
       elements.addTask.addEventListener("click", () => {
         const site = elements.site.value.trim();
         const task = elements.task.value.trim();
+        const owner = elements.owner.value.trim();
+        const due = elements.due.value;
+        const status = elements.status.value;
         if (!site || !task) {
-          alert("現場名と作業内容は必須です。");
+          elements.errorMessage.textContent = "現場名と作業内容は必須です。";
           return;
         }
+        if (due && !parseLocalDate(due)) {
+          elements.errorMessage.textContent = "期限の日付形式が正しくありません。";
+          return;
+        }
+        elements.errorMessage.textContent = "";
 
         const tasks = readTasks();
         tasks.unshift({
+          id:
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : String(Date.now()),
           site,
           task,
-          owner: elements.owner.value.trim(),
-          due: elements.due.value,
-          status: elements.status.value,
+          owner,
+          due,
+          status,
         });
         writeTasks(tasks);
 
